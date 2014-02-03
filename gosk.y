@@ -1,5 +1,5 @@
 %{
-package main
+package gosk
 
 import "reflect"
 
@@ -19,9 +19,9 @@ import "reflect"
 
 %start grammar
 
-%token            Return If Else Switch Case Default Range
-%token <node>     Error Bool Rune Imaginary Field Identifier Int Float RawString String Nil
-%type  <node>     identifier literal field
+%token            Return If Else Switch Case Default
+%token <node>     Bool Rune Imaginary Field GlobalIdentifer Identifier Int Float RawString String Nil
+%type  <node>     global_identifier identifier literal field
 %type  <node>     index
 %type  <nodelist> slice call
 
@@ -124,13 +124,13 @@ switch_stmt : Switch expr '\n' case_stmts {
             }
 }
             | Switch expr '\n' case_stmts default_stmt {
-            cases := $4
-            cases.append($5)
+            case_stmts := $4
+            case_stmts.append($5)
 
             $$ = &Node{
               typ: nodeSwitch,
               cond: $2,
-              list: cases,
+              list: case_stmts,
             }
 };
 
@@ -142,10 +142,10 @@ case_stmts : case_stmts case_stmt {
            $$ = NewNodeList()
 };
 
-case_stmt : Case expr ":" block {
+case_stmt : Case exprs ":" block {
           $$ = &Node{
             typ: nodeCase,
-            cond: $2,
+            list: $2,
             block: $4,
           }
 };
@@ -228,6 +228,7 @@ unary_op : "-" { $$ = opNegate }
 ;
 
 primary_expr : literal
+             | global_identifier
              | identifier
              | field
              | primary_expr field {
@@ -258,6 +259,8 @@ primary_expr : literal
                list: $2,
              }
 };
+
+global_identifier : GlobalIdentifer;
 
 identifier : Identifier;
 

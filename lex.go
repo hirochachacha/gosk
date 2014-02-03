@@ -1,8 +1,37 @@
-// Copyright 2011 The Go Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
+// Copyright (c) 2014 Hiroshi Ioka. All rights reserved.
 
-package main
+// this source code originally come from text/template/parse/lex.go
+// http://code.google.com/p/go/source/browse/src/pkg/text/template/parse/lex.go
+
+// Copyright (c) 2012 The Go Authors. All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are
+// met:
+//
+//    * Redistributions of source code must retain the above copyright
+// notice, this list of conditions and the following disclaimer.
+//    * Redistributions in binary form must reproduce the above
+// copyright notice, this list of conditions and the following disclaimer
+// in the documentation and/or other materials provided with the
+// distribution.
+//    * Neither the name of Google Inc. nor the names of its
+// contributors may be used to endorse or promote products derived from
+// this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+package gosk
 
 import (
 	"errors"
@@ -39,6 +68,8 @@ func (i Item) String() string {
 		return "EOF"
 	case itemField:
 		return fmt.Sprintf("field: %s", i.val)
+	case itemGlobalIdentifier:
+		return fmt.Sprintf("global_identifier: %s", i.val)
 	case itemIdentifier:
 		return fmt.Sprintf("identifier: %s", i.val)
 	case itemLeftBrace:
@@ -111,8 +142,9 @@ const (
 	itemImaginary // imaginary constant (2i)
 	itemNewLine
 	itemEOF
-	itemField      // alphanumeric identifier starting with '.'
-	itemIdentifier // alphanumeric identifier not starting with '.'
+	itemField            // alphanumeric identifier starting with '.'
+	itemGlobalIdentifier // alphanumeric identifier starting with '$'
+	itemIdentifier       // alphanumeric identifier not starting with '.'
 	itemLeftBrace
 	itemLeftParen // '(' inside action
 	itemRawString // raw quoted string (includes quotes)
@@ -138,15 +170,15 @@ const (
 
 	itemKeyword // used only to delimit the keywords
 
-	itemDot // the cursor, spelled '.'
+	itemDot    // the cursor, spelled '.'
+	itemDollar // the cursor, spelled '$'
 	itemReturn
 	itemIf   // if keyword
 	itemElse // else keyword
 	itemSwitch
 	itemCase
 	itemDefault
-	itemNil   // the untyped nil constant, easiest to treat as a keyword
-	itemRange // range keyword
+	itemNil // the untyped nil constant, easiest to treat as a keyword
 )
 
 var (
@@ -162,7 +194,6 @@ var key = map[string]itemType{
 	"switch":  itemSwitch,
 	"case":    itemCase,
 	"default": itemDefault,
-	"range":   itemRange,
 	"nil":     itemNil,
 }
 
@@ -221,24 +252,24 @@ func (l *lexer) ignore() {
 }
 
 func (l *lexer) acceptUntil(pred func(rune) bool) bool {
-	success := false
+	isSuccess := false
 	var r rune
 	for {
 		r = l.next()
 		if !pred(r) {
 			break
 		}
-		success = true
+		isSuccess = true
 	}
 	l.backup()
-	return success
+	return isSuccess
 }
 
 func (l *lexer) acceptWord() (string, error) {
-	success := l.acceptUntil(isAlphaNumeric)
+	isSuccess := l.acceptUntil(isAlphaNumeric)
 
 	word := l.input[l.start:l.pos]
-	if !success || !l.atTerminator() {
+	if !isSuccess || !l.atTerminator() {
 		return "", errors.New(fmt.Sprintf("bad character %#U", l.input[l.pos-1]))
 	}
 	return word, nil
@@ -348,6 +379,15 @@ func lexMain(l *lexer) stateFn {
 			r := l.input[l.pos]
 			if r < '0' || '9' < r {
 				return lexField
+			}
+		}
+		l.backup()
+		return mkLexNumber(true)
+	case r == '$':
+		if l.pos < Pos(len(l.input)) {
+			r := l.input[l.pos]
+			if r < '0' || '9' < r {
+				return lexGlobalIdentifier
 			}
 		}
 		l.backup()
@@ -471,6 +511,23 @@ func lexSpace(l *lexer) stateFn {
 	return lexMain
 }
 
+// lexGlobalIdentifier scans a field: $Alphanumeric.
+// The $ has been scanned.
+func lexGlobalIdentifier(l *lexer) stateFn {
+	if l.atTerminator() {
+		l.emit(itemDollar)
+		return lexMain
+	}
+
+	_, err := l.acceptWord()
+	if err != nil {
+		return l.error(err)
+	}
+
+	l.emit(itemGlobalIdentifier)
+	return lexMain
+}
+
 // lexIdentifier scans an alphanumeric.
 func lexIdentifier(l *lexer) stateFn {
 	word, err := l.acceptWord()
@@ -518,7 +575,7 @@ func (l *lexer) atTerminator() bool {
 		return true
 	}
 	switch r {
-	case eof, '.', ',', '|', ':', ')', '(':
+	case eof, '.', ',', '|', ':', ')', '(', '[', ']':
 		return true
 	}
 	return false

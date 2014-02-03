@@ -1,7 +1,6 @@
-package main
+package gosk
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -11,11 +10,11 @@ import (
 const MaxIndentDepth = 100
 
 type Lexer struct {
-	chunk       chan Item
-	internal    *lexer
-	indent      int
-	depth       int
-	isEndOfLine bool
+	chunk        chan Item
+	internal     *lexer
+	indentLength int
+	indentDepth  int
+	isEndOfLine  bool
 }
 
 func NewLexer(name, input string) *Lexer {
@@ -33,57 +32,61 @@ func (lexer *Lexer) nextItem() Item {
 		lexer.isEndOfLine = false
 
 		nspaces := 0
-		var diffSpace int
-		var diffDepth int
+		var deltaSpace int
+		var deltaDepth int
 		var isBlankLine bool
 
 		for {
 			item = <-lexer.internal.items
 			if item.typ != itemSpace {
+				if item.typ == itemNewLine {
+					lexer.isEndOfLine = true
+					isBlankLine = true
+				}
 				break
 			}
 			nspaces++
 		}
 
-		diffSpace = nspaces - lexer.indent*lexer.depth
+		deltaSpace = nspaces - lexer.indentLength*lexer.indentDepth
 
-		if diffSpace == 0 {
+		if deltaSpace == 0 {
 			return item
 		} else {
 			switch {
-			case lexer.indent == 0:
-				lexer.indent = diffSpace
-				fallthrough
-			case lexer.indent > 0:
-				if diffSpace%lexer.indent != 0 {
-					return Item{itemError, 0, "unaligned indent"}
+			case lexer.indentLength == 0:
+				if isBlankLine {
+					return item
 				}
-
-				isBlankLine = item.typ == itemNewLine
-
-				if isBlankLine && diffSpace < 0 {
-					diffDepth = -1
+				lexer.indentLength = deltaSpace
+				fallthrough
+			case lexer.indentLength > 0:
+				if isBlankLine {
+					deltaDepth = -1
 				} else {
-					diffDepth = diffSpace / lexer.indent
+					if deltaSpace%lexer.indentLength != 0 {
+						return Item{itemError, 0, fmt.Sprintf("unaligned indentation: expected %d aligned, but %d", lexer.indentLength, deltaSpace)}
+					}
+					deltaDepth = deltaSpace / lexer.indentLength
 				}
 
 				switch {
-				case diffDepth > 0:
-					if diffDepth != 1 {
-						return Item{itemError, 0, "too deep indent"}
+				case deltaDepth > 0:
+					if deltaDepth != 1 {
+						return Item{itemError, 0, fmt.Sprintf("deep indentation: expected %d, but %d", lexer.indentLength, deltaSpace)}
 					}
 					lexer.chunk <- indentItem
-				case diffDepth < 0:
-					for i := 0; i > diffDepth; i-- {
+				case deltaDepth < 0:
+					for i := 0; i > deltaDepth; i-- {
 						lexer.chunk <- dedentItem
 					}
 				}
 
-				lexer.depth += diffDepth
+				lexer.indentDepth += deltaDepth
 				lexer.chunk <- item
 				item = <-lexer.chunk
-			case lexer.indent < 0:
-				item = Item{itemError, 0, "unknown indent"}
+			case lexer.indentLength < 0:
+				return Item{itemError, 0, "unknown indentation"}
 			}
 		}
 	} else {
@@ -105,15 +108,14 @@ func (lexer *Lexer) nextItem() Item {
 }
 
 func (lexer *Lexer) Error(s string) {
-	fmt.Printf("syntax error: %s\n", s)
+	fmt.Printf("error: %s\n", s)
 }
 
 func (lexer *Lexer) Debug() {
-	var item Item
 	for {
-		item = lexer.nextItem()
+		item := lexer.nextItem()
 		fmt.Println(item)
-		if item.typ == itemEOF {
+		if item.typ == itemEOF || item.typ == itemError {
 			break
 		}
 	}
@@ -123,11 +125,7 @@ func (lexer *Lexer) Lex(sym *yySymType) int {
 	item := lexer.nextItem()
 	switch item.typ {
 	case itemError:
-		sym.node = &Node{
-			typ: nodeLiteral,
-			val: reflect.ValueOf(errors.New(item.val)),
-		}
-		return Error
+		panic(item)
 	case itemBool:
 		sym.node = &Node{
 			typ: nodeLiteral,
@@ -145,13 +143,10 @@ func (lexer *Lexer) Lex(sym *yySymType) int {
 		}
 		return Rune
 	case itemImaginary:
-		f, err := strconv.ParseFloat(item.val[:len(item.val)-1], 64)
+		val := item.val[:len(item.val)-1]
+		f, err := strconv.ParseFloat(val, 64)
 		if err != nil {
-			sym.node = &Node{
-				typ: nodeLiteral,
-				val: reflect.ValueOf(err),
-			}
-			return Error
+			panic(fmt.Sprintf("can't convert %s to float", val))
 		}
 
 		sym.node = &Node{
@@ -169,6 +164,12 @@ func (lexer *Lexer) Lex(sym *yySymType) int {
 			val: reflect.ValueOf(item.val),
 		}
 		return Field
+	case itemGlobalIdentifier:
+		sym.node = &Node{
+			typ: nodeGlobalIdentifier,
+			val: reflect.ValueOf(item.val),
+		}
+		return GlobalIdentifer
 	case itemIdentifier:
 		sym.node = &Node{
 			typ: nodeIdentifier,
@@ -182,11 +183,7 @@ func (lexer *Lexer) Lex(sym *yySymType) int {
 	case itemInt:
 		f, err := strconv.ParseInt(item.val, 10, 0)
 		if err != nil {
-			sym.node = &Node{
-				typ: nodeLiteral,
-				val: reflect.ValueOf(err),
-			}
-			return Error
+			panic(fmt.Sprintf("can't convert %s to int", item.val))
 		}
 
 		sym.node = &Node{
@@ -197,11 +194,7 @@ func (lexer *Lexer) Lex(sym *yySymType) int {
 	case itemFloat:
 		f, err := strconv.ParseFloat(item.val, 64)
 		if err != nil {
-			sym.node = &Node{
-				typ: nodeLiteral,
-				val: reflect.ValueOf(err),
-			}
-			return Error
+			panic(fmt.Sprintf("can't convert %s to float", item.val))
 		}
 
 		sym.node = &Node{
@@ -271,8 +264,6 @@ func (lexer *Lexer) Lex(sym *yySymType) int {
 			val: reflect.ValueOf(nil),
 		}
 		return Nil
-	case itemRange:
-		return Range
 	}
 
 	// unreachable

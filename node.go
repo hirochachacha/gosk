@@ -1,4 +1,4 @@
-package main
+package gosk
 
 import (
 	"fmt"
@@ -11,6 +11,7 @@ type nodeType int
 const (
 	nodeRoot nodeType = iota
 	nodeLiteral
+	nodeGlobalIdentifier
 	nodeIdentifier
 	nodeField
 
@@ -177,7 +178,11 @@ func (node *Node) debug(depth int) {
 
 	fmt.Println(indent+"typ: ", node.typ)
 	if node.val.IsValid() {
-		fmt.Println(indent+"val: ", node.val.String())
+		if node.typ == nodeOp {
+			fmt.Println(indent+"val: ", node.val.Interface().(opType))
+		} else {
+			fmt.Println(indent+"val: ", node.val.String())
+		}
 	}
 
 	depth++

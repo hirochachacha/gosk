@@ -1,4 +1,4 @@
-package main
+package gosk
 
 import (
 	"errors"
@@ -20,7 +20,15 @@ func NewDataflow() *Dataflow {
 	}
 }
 
-func (d *Dataflow) get() reflect.Value {
+func NewDataflowWith(val reflect.Value) *Dataflow {
+	return &Dataflow{
+		isSet: 1,
+		cond:  sync.NewCond(new(sync.Mutex)),
+		val:   val,
+	}
+}
+
+func (d *Dataflow) Get() reflect.Value {
 	if atomic.LoadInt32(&d.isSet) == 1 {
 		return d.val
 	}
@@ -33,7 +41,7 @@ func (d *Dataflow) get() reflect.Value {
 	return d.val
 }
 
-func (d *Dataflow) set(val reflect.Value) error {
+func (d *Dataflow) Set(val reflect.Value) error {
 	if atomic.LoadInt32(&d.isSet) == 1 {
 		return errors.New("can't assign twice")
 	}
