@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 )
 
+var ErrReassignment = errors.New("can't assign twice")
+
 type Dataflow struct {
 	isSet int32
 	cond  *sync.Cond
@@ -43,7 +45,7 @@ func (d *Dataflow) Get() reflect.Value {
 
 func (d *Dataflow) Set(val reflect.Value) error {
 	if atomic.LoadInt32(&d.isSet) == 1 {
-		return errors.New("can't assign twice")
+		return ErrReassignment
 	}
 
 	d.cond.L.Lock()

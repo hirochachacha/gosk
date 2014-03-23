@@ -34,12 +34,19 @@
 package gosk
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 )
+
+type LexError struct {
+	s string
+}
+
+func (err *LexError) Error() string {
+	return err.s
+}
 
 type Pos int
 
@@ -269,7 +276,7 @@ func (l *lexer) acceptWord() (string, error) {
 
 	word := l.input[l.start:l.pos]
 	if !isSuccess || !l.atTerminator() {
-		return "", errors.New(fmt.Sprintf("bad character %#U", l.input[l.pos-1]))
+		return "", &LexError{fmt.Sprintf("bad character %#U", l.input[l.pos-1])}
 	}
 	return word, nil
 }
