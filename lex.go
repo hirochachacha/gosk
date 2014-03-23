@@ -210,7 +210,6 @@ type lexer struct {
 	pos        Pos       // current position in the input
 	start      Pos       // start position of this item
 	width      Pos       // width of last rune read from input
-	lastPos    Pos       // position of most recent item returned by nextItem
 	items      chan Item // channel of scanned items
 	parenDepth int       // nesting depth of ( ) exprs
 	blockDepth int
@@ -292,15 +291,6 @@ func (l *lexer) acceptUntilRuneIn(valid string) bool {
 	return l.acceptUntil(pred)
 }
 
-// lineNumber reports which line we're on, based on the position of
-// the previous item returned by nextItem. Doing it this way
-// means we don't have to worry about peek double counting.
-func (l *lexer) lineNumber() int {
-	return 1 + strings.Count(l.input[:l.lastPos], "\n")
-}
-
-// errorf returns an error token and terminates the scan by passing
-// back a nil pointer that will be the next state, terminating l.nextItem.
 func (l *lexer) errorf(format string, args ...interface{}) stateFn {
 	l.items <- Item{itemError, l.start, fmt.Sprintf(format, args...)}
 	return nil
@@ -309,13 +299,6 @@ func (l *lexer) errorf(format string, args ...interface{}) stateFn {
 func (l *lexer) error(err error) stateFn {
 	l.items <- Item{itemError, l.start, err.Error()}
 	return nil
-}
-
-// nextItem returns the next item from the input.
-func (l *lexer) nextItem() Item {
-	item := <-l.items
-	l.lastPos = item.pos
-	return item
 }
 
 // lex creates a new scanner for the input string.

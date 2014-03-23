@@ -48,6 +48,19 @@ return head + body_color + body
   body = "body"
 `
 
+const format5 = `
+switch .typ
+case "text":
+  <- "text"
+case "heading":
+  if 4 <= 1
+    <- "foo"
+  else
+    <- "heading"
+default:
+  <- "default"
+`
+
 type line struct {
 	IsDir bool
 	Typ   string
@@ -74,6 +87,9 @@ func TestGosk(t *testing.T) {
 	tmpl4 := NewTemplate(format4).Vars(VarMap{
 		"printf": fmt.Sprintf,
 	})
+
+	tmpl5 := NewTemplate(format5)
+
 	// rootNode.Debug()
 
 	line1 := &line{
@@ -103,6 +119,10 @@ func TestGosk(t *testing.T) {
 	}
 
 	if tmpl4.Execute() != "eadcolorbody" {
+		t.Error("unexpected")
+	}
+
+	if tmpl5.Execute(map[string]string{"typ": "heading"}) != "heading" {
 		t.Error("unexpected")
 	}
 }

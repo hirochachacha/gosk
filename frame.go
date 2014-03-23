@@ -404,7 +404,12 @@ func (frame *Frame) levalField(globals varMap, lctx reflect.Value, node *Node) *
 		if !val.IsValid() {
 			panic(fmt.Sprintf("unknown field: %s", id))
 		}
-		return NewDataflowWith(val.Elem())
+		switch val.Kind() {
+		case reflect.Ptr, reflect.Interface:
+			return NewDataflowWith(val.Elem())
+		default:
+			return NewDataflowWith(val)
+		}
 	default:
 		panic(fmt.Sprintf("illegal field: %s", id))
 	}
